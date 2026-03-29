@@ -117,47 +117,35 @@ jobs:
           # Verify installation
           hermes --version
 
-      - name: Start Hermes Gateway & Force Telegram Reset
+      - name: Start Hermes Gateway & Deep Diagnostic
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           
-          # 1. Extract Telegram Token from config
-          TG_TOKEN=$(grep -oP 'token:\s*\K.*' ~/.hermes/config.yaml | tr -d ' ' | tr -d '"' | tr -d "'")
+          # Force Python to write logs instantly instead of holding them in memory
+          export PYTHONUNBUFFERED=1
           
-          echo "--- TELEGRAM API DIAGNOSTIC ---"
-          echo "Checking Bot identity..."
-          curl -s "https://api.telegram.org/bot${TG_TOKEN}/getMe" | jq .
-          
-          echo -e "\nNuking old Webhooks and dropping stuck updates..."
-          curl -s "https://api.telegram.org/bot${TG_TOKEN}/deleteWebhook?drop_pending_updates=true" | jq .
-          echo "-------------------------------"
-          
-          # 2. Start gateway directly in the background
+          echo "Starting Hermes Gateway..."
           nohup hermes gateway > /tmp/hermes.log 2>&1 &
           HERMES_PID=$!
           echo "$HERMES_PID" > /tmp/hermes.pid
           
-          echo "Waiting 15 seconds for boot sequence and LLM initialization..."
-          sleep 15
+          echo "Waiting 20 seconds for boot..."
+          sleep 20
           
-          # 3. Print the boot logs to see if it crashed
           echo "--- RAW HERMES BOOT LOGS ---"
           cat /tmp/hermes.log
           echo "----------------------------"
           
-          # Check if process is still running natively
-          if kill -0 "$HERMES_PID" 2>/dev/null; then
-            echo "✓ Gateway survived boot (PID: $HERMES_PID)"
-          else
-            echo "✗ Gateway crashed during boot."
-            exit 1
-          fi
+          echo "--- ACTIVE OPEN PORTS ---"
+          # This tells us exactly what port Hermes is actually running on
+          sudo ss -tulwn | grep LISTEN
+          echo "-------------------------"
           
-          # 4. Start Cloudflare tunnel
+          # Start Cloudflare tunnel (Forced to 127.0.0.1 instead of localhost)
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o c.deb
           sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
           
-          cloudflared tunnel --url http://localhost:18790 --no-autoupdate > /tmp/tunnel.log 2>&1 &
+          cloudflared tunnel --url http://127.0.0.1:18790 --no-autoupdate > /tmp/tunnel.log 2>&1 &
           sleep 8
           TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           
