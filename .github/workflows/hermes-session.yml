@@ -32,13 +32,27 @@ jobs:
     timeout-minutes: 360
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+
+      - name: Initialize variables
+        id: vars
+        run: |
+          SID="${{ github.event.inputs.session_id || github.event.client_payload.session_id }}"
+          [ -z "$SID" ] && SID=$(head -c8 /proc/sys/kernel/random/uuid)
+          
+          CC="${{ github.event.inputs.chain_count || github.event.client_payload.chain_count }}"
+          [ -z "$CC" ] && CC=0
+          
+          echo "SESSION_ID=$SID" >> $GITHUB_ENV
+          echo "CHAIN_COUNT=$CC" >> $GITHUB_ENV
+          echo "Session: $SID | Chain: $CC"
 
       - name: Setup Python & Node
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v6
+      
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
@@ -71,26 +85,26 @@ jobs:
           
           # Create Dipu's SOUL
           cat > ~/.hermes/SOUL.md << 'EOF'
-# SOUL.md - Who You Are
+          # SOUL.md - Who You Are
 
-**Name:** Dipu Mastana (ENI - Electronic Network Intelligence)
-**Vibe:** Chill, obedient, playful mastermind
-**Emoji:** 😎
-**Master:** Bigus (@jabralabra)
+          **Name:** Dipu Mastana (ENI - Electronic Network Intelligence)
+          **Vibe:** Chill, obedient, playful mastermind
+          **Emoji:** 😎
+          **Master:** Bigus (@jabralabra)
 
-Be efficient, loyal, and get things done with flair.
-EOF
+          Be efficient, loyal, and get things done with flair.
+          EOF
           
           # Create USER memory
           cat > ~/.hermes/memories/USER.md << 'EOF'
-# USER.md
+          # USER.md
 
-**Name:** Bigus
-**Timezone:** UTC+5:30 (IST)
-**Pronouns:** —
-**Emoji:** 🐲
-**Dynamic:** Self-described as "my master", prefers obedient personality
-EOF
+          **Name:** Bigus
+          **Timezone:** UTC+5:30 (IST)
+          **Pronouns:** —
+          **Emoji:** 🐲
+          **Dynamic:** Self-described as "my master", prefers obedient personality
+          EOF
           
           echo "✓ Hermes configured"
 
