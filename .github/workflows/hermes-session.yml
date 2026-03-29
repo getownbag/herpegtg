@@ -117,15 +117,19 @@ jobs:
           # Verify installation
           hermes --version
 
-      - name: Start Hermes Gateway & Deep Diagnostic
+      - name: Start Hermes Gateway
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           
-          # Force Python to write logs instantly instead of holding them in memory
+          # 1. Force Python and the CLI to run in pure headless mode
           export PYTHONUNBUFFERED=1
+          export TERM=dumb
+          export FORCE_COLOR=0
+          export NONINTERACTIVE=1
           
           echo "Starting Hermes Gateway..."
-          nohup hermes gateway > /tmp/hermes.log 2>&1 &
+          # 2. THE FIX: < /dev/null prevents the OS from freezing the background process
+          nohup hermes gateway < /dev/null > /tmp/hermes.log 2>&1 &
           HERMES_PID=$!
           echo "$HERMES_PID" > /tmp/hermes.pid
           
@@ -136,12 +140,7 @@ jobs:
           cat /tmp/hermes.log
           echo "----------------------------"
           
-          echo "--- ACTIVE OPEN PORTS ---"
-          # This tells us exactly what port Hermes is actually running on
-          sudo ss -tulwn | grep LISTEN
-          echo "-------------------------"
-          
-          # Start Cloudflare tunnel (Forced to 127.0.0.1 instead of localhost)
+          # Start Cloudflare tunnel
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o c.deb
           sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
           
