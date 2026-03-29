@@ -56,18 +56,11 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Hermes Agent
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-          source ~/.bashrc 2>/dev/null || true
-          export PATH="$HOME/.local/bin:$PATH"
-          hermes --version
-
-      - name: Configure Hermes (Single Secret)
+      # MOVED TO BEFORE INSTALLATION so the installer detects it and skips the wizard
+      - name: Pre-Configure Hermes (Single Secret)
         env:
           HERMES_CONFIG: ${{ secrets.HERMES_CONFIG }}
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
           mkdir -p ~/.hermes/memories
           
           # Decode config from secret (try base64 first, fallback to raw)
@@ -106,7 +99,20 @@ jobs:
           **Dynamic:** Self-described as "my master", prefers obedient personality
           EOF
           
-          echo "✓ Hermes configured"
+          echo "✓ Hermes pre-configured"
+
+      - name: Install Hermes Agent
+        run: |
+          export NONINTERACTIVE=1
+          export CI=true
+          # The || catches the /dev/tty crash if the wizard still tries to force-start
+          curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash || echo "✓ Bypassed interactive setup wizard"
+          
+          source ~/.bashrc 2>/dev/null || true
+          export PATH="$HOME/.local/bin:$PATH"
+          
+          # This acts as the real test: if the install failed, this command will crash the workflow
+          hermes --version
 
       - name: Start Hermes Gateway
         run: |
@@ -143,7 +149,7 @@ jobs:
           echo "PID:    $HERMES_PID"
           echo ""
           echo "✓ Telegram bot is live"
-          echo "✓ 10 NVIDIA models ready"
+          echo "✓ NVIDIA models ready"
           echo "=============================================="
 
       - name: Keep alive & auto-chain
