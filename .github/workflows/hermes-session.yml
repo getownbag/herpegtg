@@ -1,0 +1,203 @@
+name: Hermes Session
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_id:
+        description: 'Session ID'
+        required: false
+        default: ''
+      chain_count:
+        description: 'Chain count'
+        required: false
+        default: '0'
+      cache_version:
+        description: 'Cache version'
+        required: false
+        default: 'v1'
+  repository_dispatch:
+    types: [chain-hermes]
+
+env:
+  CHAIN_MINUTES: 345
+  HARD_LIMIT: 350
+  PORT: 18789
+
+concurrency:
+  group: hermes-session
+  cancel-in-progress: false
+
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Session info
+        id: info
+        run: |
+          SID="${{ github.event.inputs.session_id }}"
+          [ -z "$SID" ] && SID=$(head -c8 /proc/sys/kernel/random/uuid)
+          CC="${{ github.event.inputs.chain_count }}"
+          [ -z "$CC" ] && CC=0
+          CV="${{ github.event.inputs.cache_version }}"
+          [ -z "$CV" ] && CV=v1
+          [ "${{ github.event_name }}" = "repository_dispatch" ] && {
+            [ -n "${{ github.event.client_payload.chain_count }}" ] && CC="${{ github.event.client_payload.chain_count }}"
+            [ -n "${{ github.event.client_payload.cache_version }}" ] && CV="${{ github.event.client_payload.cache_version }}"
+          }
+          echo "sid=$SID" >> $GITHUB_OUTPUT
+          echo "cc=$CC" >> $GITHUB_OUTPUT
+          echo "cv=$CV" >> $GITHUB_OUTPUT
+          echo "start=$(date +%s)" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.hermes
+          key: hermes-${{ steps.info.outputs.cv }}
+
+      - name: Install Hermes
+        run: |
+          [ -f ~/.hermes/bin/hermes ] || curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+          echo ~/.hermes/bin >> $GITHUB_PATH
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          PLAYWRIGHT_BROWSERS_PATH=~/.playwright playwright install chromium
+          sudo apt-get update && sudo apt-get install -y libnss3 libatk1.0-0 libdrm2 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 || true
+
+      - name: Configure
+        env:
+          HERMES_CONFIG: ${{ secrets.HERMES_CONFIG }}
+          HERMES_SECRETS: ${{ secrets.HERMES_SECRETS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_API_KEY_2: ${{ secrets.NVIDIA_API_KEY_2 }}
+          NVIDIA_API_KEY_3: ${{ secrets.NVIDIA_API_KEY_3 }}
+          NVIDIA_API_KEY_4: ${{ secrets.NVIDIA_API_KEY_4 }}
+          NVIDIA_API_KEY_5: ${{ secrets.NVIDIA_API_KEY_5 }}
+          NVIDIA_API_KEY_6: ${{ secrets.NVIDIA_API_KEY_6 }}
+          NVIDIA_API_KEY_7: ${{ secrets.NVIDIA_API_KEY_7 }}
+          NVIDIA_API_KEY_8: ${{ secrets.NVIDIA_API_KEY_8 }}
+          NVIDIA_API_KEY_9: ${{ secrets.NVIDIA_API_KEY_9 }}
+          NVIDIA_API_KEY_10: ${{ secrets.NVIDIA_API_KEY_10 }}
+        run: |
+          mkdir -p ~/.hermes/workspace
+          
+          # Write secrets
+          if [ -n "$HERMES_SECRETS" ]; then
+            echo "$HERMES_SECRETS" > ~/.hermes/secrets.yaml
+          else
+            cat > ~/.hermes/secrets.yaml << EOF
+TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+TELEGRAM_USER_ID: "${TELEGRAM_USER_ID}"
+NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
+NVIDIA_API_KEY_2: "${NVIDIA_API_KEY_2}"
+NVIDIA_API_KEY_3: "${NVIDIA_API_KEY_3}"
+NVIDIA_API_KEY_4: "${NVIDIA_API_KEY_4}"
+NVIDIA_API_KEY_5: "${NVIDIA_API_KEY_5}"
+NVIDIA_API_KEY_6: "${NVIDIA_API_KEY_6}"
+NVIDIA_API_KEY_7: "${NVIDIA_API_KEY_7}"
+NVIDIA_API_KEY_8: "${NVIDIA_API_KEY_8}"
+NVIDIA_API_KEY_9: "${NVIDIA_API_KEY_9}"
+NVIDIA_API_KEY_10: "${NVIDIA_API_KEY_10}"
+EOF
+          fi
+          chmod 600 ~/.hermes/secrets.yaml
+          
+          # Write config with env substitution
+          if [ -n "$HERMES_CONFIG" ]; then
+            echo "$HERMES_CONFIG" | sed \
+              -e "s|\${TELEGRAM_BOT_TOKEN}|${TELEGRAM_BOT_TOKEN}|g" \
+              -e "s|\${TELEGRAM_USER_ID}|${TELEGRAM_USER_ID}|g" \
+              -e "s|\${NVIDIA_API_KEY}|${NVIDIA_API_KEY}|g" \
+              -e "s|\${NVIDIA_API_KEY_2}|${NVIDIA_API_KEY_2}|g" \
+              -e "s|\${NVIDIA_API_KEY_3}|${NVIDIA_API_KEY_3}|g" \
+              -e "s|\${NVIDIA_API_KEY_4}|${NVIDIA_API_KEY_4}|g" \
+              -e "s|\${NVIDIA_API_KEY_5}|${NVIDIA_API_KEY_5}|g" \
+              -e "s|\${NVIDIA_API_KEY_6}|${NVIDIA_API_KEY_6}|g" \
+              -e "s|\${NVIDIA_API_KEY_7}|${NVIDIA_API_KEY_7}|g" \
+              -e "s|\${NVIDIA_API_KEY_8}|${NVIDIA_API_KEY_8}|g" \
+              -e "s|\${NVIDIA_API_KEY_9}|${NVIDIA_API_KEY_9}|g" \
+              -e "s|\${NVIDIA_API_KEY_10}|${NVIDIA_API_KEY_10}|g" \
+              > ~/.hermes/config.yaml
+          fi
+          chmod 644 ~/.hermes/config.yaml
+
+      - name: Restore workspace
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          [ -z "$GH_TOKEN" ] && exit 0
+          AID=$(gh api "repos/${{ github.repository }}/actions/artifacts" --jq '[.artifacts[] | select(.name=="hermes-ws" and .expired==false)] | first | .workflow_run.id' 2>/dev/null)
+          [ -n "$AID" ] && [ "$AID" != "null" ] && gh run download "$AID" --repo "${{ github.repository }}" --name hermes-ws --dir ~/.hermes/workspace || true
+
+      - name: Start tunnel
+        id: tunnel
+        run: |
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o c.deb
+          sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
+          cloudflared tunnel --url http://localhost:${{ env.PORT }} --no-autoupdate > /tmp/tun.log 2>&1 &
+          for i in {1..30}; do
+            sleep 2
+            U=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tun.log | head -1)
+            [ -n "$U" ] && echo "url=$U" >> $GITHUB_OUTPUT && echo "Tunnel: $U" && exit 0
+          done
+          cat /tmp/tun.log && exit 1
+
+      - name: Start Hermes
+        run: |
+          export PATH=~/.hermes/bin:$PATH
+          nohup hermes gateway > /tmp/hermes.log 2>&1 &
+          echo $! > /tmp/hermes.pid
+          sleep 10
+          kill -0 $(cat /tmp/hermes.pid) 2>/dev/null && echo "Hermes started" || { cat /tmp/hermes.log; exit 1; }
+
+      - name: Keepalive
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          START=${{ steps.info.outputs.start }}
+          CHAIN=$((START + ${{ env.CHAIN_MINUTES }}*60))
+          HARD=$((START + ${{ env.HARD_LIMIT }}*60))
+          CHAINED=false
+          
+          while [ $(date +%s) -lt $HARD ]; do
+            NOW=$(date +%s)
+            ELAP=$(( (NOW-START)/60 ))
+            
+            if [ "$CHAINED" = "false" ]; then
+              LEFT=$(( (CHAIN-NOW)/60 ))
+              echo "Alive: ${ELAP}min elapsed, ${LEFT}min to chain"
+              
+              if [ $NOW -ge $CHAIN ]; then
+                echo "Triggering chain..."
+                curl -s -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+                  -d '{"event_type":"chain-hermes","client_payload":{"session_id":"${{ steps.info.outputs.sid }}","chain_count":${{ steps.info.outputs.cc }}+1,"cache_version":"${{ steps.info.outputs.cv }}"}}' && CHAINED=true
+              fi
+            else
+              LEFT=$(( (HARD-NOW)/60 ))
+              echo "Chained: ${ELAP}min elapsed, ${LEFT}min to limit"
+            fi
+            
+            sleep 60
+          done
+
+      - name: Upload workspace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-ws
+          path: ~/.hermes/workspace
+          retention-days: 90
+          if-no-files-found: ignore
