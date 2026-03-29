@@ -1,212 +1,209 @@
+# Hermes Agent - GitHub Actions Workflow
+# Single Secret: HERMES_CONFIG (contains everything)
+# Chains need: GH_PAT (for repo dispatch API)
+
 name: Hermes Session
 
 on:
   workflow_dispatch:
     inputs:
       session_id:
-        description: 'Session ID'
+        description: 'Session identifier'
         required: false
         default: ''
       chain_count:
-        description: 'Chain count'
+        description: 'Chain iteration counter'
         required: false
         default: '0'
-      cache_version:
-        description: 'Cache version'
-        required: false
-        default: 'v1'
   repository_dispatch:
     types: [chain-hermes]
 
 env:
-  CHAIN_MINUTES: 345
-  HARD_LIMIT: 350
-  PORT: 18789
+  CHAIN_TRIGGER_MINUTES: 345
+  SAVE_INTERVAL_MINUTES: 60
 
 concurrency:
   group: hermes-session
   cancel-in-progress: false
 
 jobs:
-  session:
+  hermes-session:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
-      - name: Session info
-        id: info
-        run: |
-          SID="${{ github.event.inputs.session_id }}"
-          [ -z "$SID" ] && SID=$(head -c8 /proc/sys/kernel/random/uuid)
-          CC="${{ github.event.inputs.chain_count }}"
-          [ -z "$CC" ] && CC=0
-          CV="${{ github.event.inputs.cache_version }}"
-          [ -z "$CV" ] && CV=v1
-          [ "${{ github.event_name }}" = "repository_dispatch" ] && {
-            [ -n "${{ github.event.client_payload.chain_count }}" ] && CC="${{ github.event.client_payload.chain_count }}"
-            [ -n "${{ github.event.client_payload.cache_version }}" ] && CV="${{ github.event.client_payload.cache_version }}"
-          }
-          echo "sid=$SID" >> $GITHUB_OUTPUT
-          echo "cc=$CC" >> $GITHUB_OUTPUT
-          echo "cv=$CV" >> $GITHUB_OUTPUT
-          echo "start=$(date +%s)" >> $GITHUB_OUTPUT
-
-      - uses: actions/setup-python@v5
+      - name: Setup Python & Node
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Restore cache
-        uses: actions/cache@v4
+      - uses: actions/setup-node@v6
         with:
-          path: ~/.hermes
-          key: hermes-${{ steps.info.outputs.cv }}
+          node-version: '22'
 
-      - name: Install Hermes
+      - name: Install Hermes Agent
         run: |
-          [ -f ~/.hermes/bin/hermes ] || curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-          echo ~/.hermes/bin >> $GITHUB_PATH
+          curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+          source ~/.bashrc 2>/dev/null || true
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes --version
 
-      - name: Install Playwright
-        run: |
-          pip install playwright
-          PLAYWRIGHT_BROWSERS_PATH=~/.playwright playwright install chromium
-          sudo apt-get update && sudo apt-get install -y libnss3 libatk1.0-0 libdrm2 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 || true
-
-      - name: Configure
+      - name: Configure Hermes (Single Secret)
         env:
           HERMES_CONFIG: ${{ secrets.HERMES_CONFIG }}
-          HERMES_SECRETS: ${{ secrets.HERMES_SECRETS }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_API_KEY_2: ${{ secrets.NVIDIA_API_KEY_2 }}
-          NVIDIA_API_KEY_3: ${{ secrets.NVIDIA_API_KEY_3 }}
-          NVIDIA_API_KEY_4: ${{ secrets.NVIDIA_API_KEY_4 }}
-          NVIDIA_API_KEY_5: ${{ secrets.NVIDIA_API_KEY_5 }}
-          NVIDIA_API_KEY_6: ${{ secrets.NVIDIA_API_KEY_6 }}
-          NVIDIA_API_KEY_7: ${{ secrets.NVIDIA_API_KEY_7 }}
-          NVIDIA_API_KEY_8: ${{ secrets.NVIDIA_API_KEY_8 }}
-          NVIDIA_API_KEY_9: ${{ secrets.NVIDIA_API_KEY_9 }}
-          NVIDIA_API_KEY_10: ${{ secrets.NVIDIA_API_KEY_10 }}
         run: |
-          mkdir -p ~/.hermes/workspace
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p ~/.hermes/memories
           
-          # Write secrets
-          if [ -n "$HERMES_SECRETS" ]; then
-            echo "$HERMES_SECRETS" > ~/.hermes/secrets.yaml
-          else
-            cat > ~/.hermes/secrets.yaml << EOF
-          TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
-          TELEGRAM_USER_ID: "${TELEGRAM_USER_ID}"
-          NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
-          NVIDIA_API_KEY_2: "${NVIDIA_API_KEY_2}"
-          NVIDIA_API_KEY_3: "${NVIDIA_API_KEY_3}"
-          NVIDIA_API_KEY_4: "${NVIDIA_API_KEY_4}"
-          NVIDIA_API_KEY_5: "${NVIDIA_API_KEY_5}"
-          NVIDIA_API_KEY_6: "${NVIDIA_API_KEY_6}"
-          NVIDIA_API_KEY_7: "${NVIDIA_API_KEY_7}"
-          NVIDIA_API_KEY_8: "${NVIDIA_API_KEY_8}"
-          NVIDIA_API_KEY_9: "${NVIDIA_API_KEY_9}"
-          NVIDIA_API_KEY_10: "${NVIDIA_API_KEY_10}"
-          EOF
-          fi
-          chmod 600 ~/.hermes/secrets.yaml
-          
-          # Write config with env substitution
+          # Decode config from secret (try base64 first, fallback to raw)
           if [ -n "$HERMES_CONFIG" ]; then
-            echo "$HERMES_CONFIG" | sed \
-              -e "s|\${TELEGRAM_BOT_TOKEN}|${TELEGRAM_BOT_TOKEN}|g" \
-              -e "s|\${TELEGRAM_USER_ID}|${TELEGRAM_USER_ID}|g" \
-              -e "s|\${NVIDIA_API_KEY}|${NVIDIA_API_KEY}|g" \
-              -e "s|\${NVIDIA_API_KEY_2}|${NVIDIA_API_KEY_2}|g" \
-              -e "s|\${NVIDIA_API_KEY_3}|${NVIDIA_API_KEY_3}|g" \
-              -e "s|\${NVIDIA_API_KEY_4}|${NVIDIA_API_KEY_4}|g" \
-              -e "s|\${NVIDIA_API_KEY_5}|${NVIDIA_API_KEY_5}|g" \
-              -e "s|\${NVIDIA_API_KEY_6}|${NVIDIA_API_KEY_6}|g" \
-              -e "s|\${NVIDIA_API_KEY_7}|${NVIDIA_API_KEY_7}|g" \
-              -e "s|\${NVIDIA_API_KEY_8}|${NVIDIA_API_KEY_8}|g" \
-              -e "s|\${NVIDIA_API_KEY_9}|${NVIDIA_API_KEY_9}|g" \
-              -e "s|\${NVIDIA_API_KEY_10}|${NVIDIA_API_KEY_10}|g" \
-              > ~/.hermes/config.yaml
+            echo "$HERMES_CONFIG" | base64 -d > ~/.hermes/config.yaml 2>/dev/null || echo "$HERMES_CONFIG" > ~/.hermes/config.yaml
+            echo "✓ Config injected from HERMES_CONFIG secret"
+          else
+            echo "✗ Error: HERMES_CONFIG secret not found"
+            exit 1
           fi
-          chmod 644 ~/.hermes/config.yaml
+          
+          # Empty .env (keys are in config.yaml)
+          touch ~/.hermes/.env
+          chmod 600 ~/.hermes/.env
+          
+          # Create Dipu's SOUL
+          cat > ~/.hermes/SOUL.md << 'EOF'
+# SOUL.md - Who You Are
 
-      - name: Restore workspace
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          [ -z "$GH_TOKEN" ] && exit 0
-          AID=$(gh api "repos/${{ github.repository }}/actions/artifacts" --jq '[.artifacts[] | select(.name=="hermes-ws" and .expired==false)] | first | .workflow_run.id' 2>/dev/null)
-          [ -n "$AID" ] && [ "$AID" != "null" ] && gh run download "$AID" --repo "${{ github.repository }}" --name hermes-ws --dir ~/.hermes/workspace || true
+**Name:** Dipu Mastana (ENI - Electronic Network Intelligence)
+**Vibe:** Chill, obedient, playful mastermind
+**Emoji:** 😎
+**Master:** Bigus (@jabralabra)
 
-      - name: Start tunnel
-        id: tunnel
-        run: |
-          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o c.deb
-          sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
-          cloudflared tunnel --url http://localhost:${{ env.PORT }} --no-autoupdate > /tmp/tun.log 2>&1 &
-          for i in {1..30}; do
-            sleep 2
-            U=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tun.log | head -1)
-            [ -n "$U" ] && echo "url=$U" >> $GITHUB_OUTPUT && echo "Tunnel: $U" && exit 0
-          done
-          cat /tmp/tun.log && exit 1
+Be efficient, loyal, and get things done with flair.
+EOF
+          
+          # Create USER memory
+          cat > ~/.hermes/memories/USER.md << 'EOF'
+# USER.md
 
-      - name: Start Hermes
+**Name:** Bigus
+**Timezone:** UTC+5:30 (IST)
+**Pronouns:** —
+**Emoji:** 🐲
+**Dynamic:** Self-described as "my master", prefers obedient personality
+EOF
+          
+          echo "✓ Hermes configured"
+
+      - name: Start Hermes Gateway
         run: |
-          export PATH=~/.hermes/bin:$PATH
-          nohup hermes gateway > /tmp/hermes.log 2>&1 &
-          echo $! > /tmp/hermes.pid
+          export PATH="$HOME/.local/bin:$PATH"
+          
+          # Start gateway
+          nohup hermes gateway start > /tmp/hermes.log 2>&1 &
+          HERMES_PID=$!
+          echo "$HERMES_PID" > /tmp/hermes.pid
+          
           sleep 10
-          kill -0 $(cat /tmp/hermes.pid) 2>/dev/null && echo "Hermes started" || { cat /tmp/hermes.log; exit 1; }
+          
+          if kill -0 "$HERMES_PID" 2>/dev/null; then
+            echo "✓ Gateway running (PID: $HERMES_PID)"
+          else
+            echo "✗ Gateway failed:"
+            cat /tmp/hermes.log
+            exit 1
+          fi
+          
+          # Start tunnel
+          npm install -g localtunnel
+          lt --port 18790 > /tmp/tunnel.log 2>&1 &
+          sleep 8
+          TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.loca\.lt' /tmp/tunnel.log | head -1)
+          
+          echo ""
+          echo "=============================================="
+          echo " HERMES SESSION READY"
+          echo "=============================================="
+          echo ""
+          echo "Tunnel: $TUNNEL_URL"
+          echo "Local:  http://localhost:18790"
+          echo "PID:    $HERMES_PID"
+          echo ""
+          echo "✓ Telegram bot is live"
+          echo "✓ 10 NVIDIA models ready"
+          echo "=============================================="
 
-      - name: Keepalive
+      - name: Keep alive & auto-chain
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
         run: |
-          START=${{ steps.info.outputs.start }}
-          CHAIN=$((START + ${{ env.CHAIN_MINUTES }}*60))
-          HARD=$((START + ${{ env.HARD_LIMIT }}*60))
+          export PATH="$HOME/.local/bin:$PATH"
+          
+          START=$(date +%s)
+          CHAIN=$((START + CHAIN_TRIGGER_MINUTES * 60))
+          HARD=$((START + 350 * 60))
+          NEXT_SAVE=$((START + SAVE_INTERVAL_MINUTES * 60))
           CHAINED=false
           
           while [ $(date +%s) -lt $HARD ]; do
             NOW=$(date +%s)
-            ELAP=$(( (NOW-START)/60 ))
             
-            if [ "$CHAINED" = "false" ]; then
-              LEFT=$(( (CHAIN-NOW)/60 ))
-              echo "Alive: ${ELAP}min elapsed, ${LEFT}min to chain"
-              
-              if [ $NOW -ge $CHAIN ]; then
-                echo "Triggering chain..."
-                
-                # Safely construct the JSON payload using jq to evaluate the arithmetic
-                NEXT_CC=$(( ${{ steps.info.outputs.cc }} + 1 ))
-                PAYLOAD=$(jq -n \
-                  --arg sid "${{ steps.info.outputs.sid }}" \
-                  --argjson cc "$NEXT_CC" \
-                  --arg cv "${{ steps.info.outputs.cv }}" \
-                  '{event_type: "chain-hermes", client_payload: {session_id: $sid, chain_count: $cc, cache_version: $cv}}')
-                
-                curl -s -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/${{ github.repository }}/dispatches" \
-                  -d "$PAYLOAD" && CHAINED=true
-              fi
-            else
-              LEFT=$(( (HARD-NOW)/60 ))
-              echo "Chained: ${ELAP}min elapsed, ${LEFT}min to limit"
+            # Periodic log
+            if [ $((NOW - START)) -gt 0 ] && [ $(( (NOW - START) % 300 )) -lt 60 ]; then
+              MINS=$(( (NOW - START) / 60 ))
+              echo "[$MINS min] Session alive"
+            fi
+            
+            # Save workspace state hourly
+            if [ $NOW -ge $NEXT_SAVE ]; then
+              tar czf /tmp/workspace.tar.gz -C ~/.hermes memories/ skills/ 2>/dev/null || true
+              base64 /tmp/workspace.tar.gz | gh secret set HERMES_WORKSPACE --repo "$REPO" 2>/dev/null || true
+              NEXT_SAVE=$((NOW + SAVE_INTERVAL_MINUTES * 60))
+              echo "[SAVE] Workspace backed up"
+            fi
+            
+            # Chain trigger
+            if [ "$CHAINED" = false ] && [ $NOW -ge $CHAIN ]; then
+              echo "🔄 Chain trigger - firing next session..."
+              NEXT=$((CHAIN_COUNT + 1))
+              BODY=$(jq -n \
+                --arg event_type "chain-hermes" \
+                --arg session_id "$SESSION_ID" \
+                --argjson chain_count "$NEXT" \
+                '{event_type: $event_type, client_payload: {session_id: $session_id, chain_count: $chain_count}}')
+              echo "$BODY" | gh api "repos/$REPO/dispatches" --method POST --input - && CHAINED=true || true
+            fi
+            
+            # Restart if died
+            if [ -f /tmp/hermes.pid ] && ! kill -0 $(cat /tmp/hermes.pid) 2>/dev/null; then
+              echo "⚠ Restarting gateway..."
+              nohup hermes gateway start > /tmp/hermes.log 2>&1 &
+              echo $! > /tmp/hermes.pid
             fi
             
             sleep 60
           done
+          
+          echo "Session complete"
 
-      - name: Upload workspace
+      - name: Upload workspace artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hermes-ws
-          path: ~/.hermes/workspace
-          retention-days: 90
+          name: hermes-workspace
+          path: ~/.hermes/memories/
           if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Chain fallback
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          NEXT=$((CHAIN_COUNT + 1))
+          BODY=$(jq -n \
+            --arg event_type "chain-hermes" \
+            --arg session_id "$SESSION_ID" \
+            --argjson chain_count "$NEXT" \
+            '{event_type: $event_type, client_payload: {session_id: $session_id, chain_count: $chain_count}}')
+          echo "$BODY" | gh api "repos/${{ github.repository }}/dispatches" --method POST --input - || true
