@@ -117,44 +117,46 @@ jobs:
           # Verify installation
           hermes --version
 
-      - name: Start Hermes Gateway
+      - name: Start Hermes Gateway & Force Telegram Reset
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           
-          # Start gateway directly in the background (bypassing systemd)
+          # 1. Extract Telegram Token from config
+          TG_TOKEN=$(grep -oP 'token:\s*\K.*' ~/.hermes/config.yaml | tr -d ' ' | tr -d '"' | tr -d "'")
+          
+          echo "--- TELEGRAM API DIAGNOSTIC ---"
+          echo "Checking Bot identity..."
+          curl -s "https://api.telegram.org/bot${TG_TOKEN}/getMe" | jq .
+          
+          echo -e "\nNuking old Webhooks and dropping stuck updates..."
+          curl -s "https://api.telegram.org/bot${TG_TOKEN}/deleteWebhook?drop_pending_updates=true" | jq .
+          echo "-------------------------------"
+          
+          # 2. Start gateway directly in the background
           nohup hermes gateway > /tmp/hermes.log 2>&1 &
           HERMES_PID=$!
           echo "$HERMES_PID" > /tmp/hermes.pid
           
-          sleep 10
+          echo "Waiting 15 seconds for boot sequence and LLM initialization..."
+          sleep 15
           
-          # Check if process is running natively
+          # 3. Print the boot logs to see if it crashed
+          echo "--- RAW HERMES BOOT LOGS ---"
+          cat /tmp/hermes.log
+          echo "----------------------------"
+          
+          # Check if process is still running natively
           if kill -0 "$HERMES_PID" 2>/dev/null; then
-            echo "✓ Gateway running (PID: $HERMES_PID)"
+            echo "✓ Gateway survived boot (PID: $HERMES_PID)"
           else
-            echo "✗ Gateway failed to start natively. Log output:"
-            cat /tmp/hermes.log
-            
-            # Fallback for CLI subcommands
-            echo "Attempting fallback foreground command..."
-            nohup hermes gateway run > /tmp/hermes.log 2>&1 &
-            HERMES_PID=$!
-            echo "$HERMES_PID" > /tmp/hermes.pid
-            sleep 5
-            
-            if kill -0 "$HERMES_PID" 2>/dev/null; then
-               echo "✓ Gateway running via fallback (PID: $HERMES_PID)"
-            else
-               cat /tmp/hermes.log
-               exit 1
-            fi
+            echo "✗ Gateway crashed during boot."
+            exit 1
           fi
           
-          # Start Cloudflare tunnel (Replaces localtunnel to avoid bot-blocking splash pages)
+          # 4. Start Cloudflare tunnel
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o c.deb
           sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
           
-          # Point the tunnel to localhost:8000 (Update this if Hermes uses a different port)
           cloudflared tunnel --url http://localhost:18790 --no-autoupdate > /tmp/tunnel.log 2>&1 &
           sleep 8
           TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
@@ -162,13 +164,7 @@ jobs:
           echo ""
           echo "=============================================="
           echo " HERMES SESSION READY"
-          echo "=============================================="
-          echo ""
           echo "Tunnel: $TUNNEL_URL"
-          echo "PID:    $HERMES_PID"
-          echo ""
-          echo "✓ Telegram bot is live"
-          echo "✓ NVIDIA models ready"
           echo "=============================================="
 
       - name: Keep alive & auto-chain
