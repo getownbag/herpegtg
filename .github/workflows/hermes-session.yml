@@ -155,7 +155,7 @@ jobs:
           sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
           
           # Point the tunnel to localhost:8000 (Update this if Hermes uses a different port)
-          cloudflared tunnel --url http://localhost:8000 --no-autoupdate > /tmp/tunnel.log 2>&1 &
+          cloudflared tunnel --url http://localhost:18790 --no-autoupdate > /tmp/tunnel.log 2>&1 &
           sleep 8
           TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           
