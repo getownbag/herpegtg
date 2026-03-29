@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   hermes-session:
-    runs-on: ubuntu-latest
+    
     timeout-minutes: 360
     steps:
       - name: Checkout repository
