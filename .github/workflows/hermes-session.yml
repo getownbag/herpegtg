@@ -117,30 +117,36 @@ jobs:
           # Verify installation
           hermes --version
 
-      - name: Start Hermes Gateway
+      - name: Start Hermes Gateway (Virtual Terminal Fix)
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           
-          # 1. Force Python and the CLI to run in pure headless mode
+          # Install tmux to create a fake screen
+          sudo apt-get update > /dev/null 2>&1
+          sudo apt-get install -y tmux > /dev/null 2>&1
+          
           export PYTHONUNBUFFERED=1
-          export TERM=dumb
-          export FORCE_COLOR=0
-          export NONINTERACTIVE=1
           
-          echo "Starting Hermes Gateway..."
-          # 2. THE FIX: < /dev/null prevents the OS from freezing the background process
-          nohup hermes gateway < /dev/null > /tmp/hermes.log 2>&1 &
-          HERMES_PID=$!
-          echo "$HERMES_PID" > /tmp/hermes.pid
+          echo "Starting Hermes Gateway inside a virtual terminal (tmux)..."
+          # This creates a detached fake terminal session named "hgw"
+          tmux new-session -d -s hgw 'hermes gateway > /tmp/hermes.log 2>&1'
           
-          echo "Waiting 20 seconds for boot..."
+          echo "Waiting 20 seconds for boot sequence..."
           sleep 20
           
           echo "--- RAW HERMES BOOT LOGS ---"
           cat /tmp/hermes.log
           echo "----------------------------"
           
-          # Start Cloudflare tunnel
+          # Check if the tmux session is still alive
+          if tmux has-session -t hgw 2>/dev/null; then
+            echo "✓ Gateway survived boot and is running in tmux!"
+          else
+            echo "✗ Gateway crashed inside tmux."
+            exit 1
+          fi
+          
+          # Start Cloudflare tunnel (Forced to 127.0.0.1 and matching config port 18790)
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o c.deb
           sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
           
@@ -201,11 +207,10 @@ jobs:
               echo "$BODY" | gh api "repos/$REPO/dispatches" --method POST --input - && CHAINED=true || true
             fi
             
-            # Restart if died
-            if [ -f /tmp/hermes.pid ] && ! kill -0 $(cat /tmp/hermes.pid) 2>/dev/null; then
-              echo "⚠ Restarting gateway..."
-              nohup hermes gateway > /tmp/hermes.log 2>&1 &
-              echo $! > /tmp/hermes.pid
+            # Restart if died using tmux
+            if ! tmux has-session -t hgw 2>/dev/null; then
+              echo "⚠ Restarting gateway in tmux..."
+              tmux new-session -d -s hgw 'hermes gateway > /tmp/hermes.log 2>&1'
             fi
             
             sleep 60
