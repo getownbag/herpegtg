@@ -56,7 +56,6 @@ jobs:
         with:
           node-version: '22'
 
-      # MOVED TO BEFORE INSTALLATION so the installer detects it and skips the wizard
       - name: Pre-Configure Hermes (Single Secret)
         env:
           HERMES_CONFIG: ${{ secrets.HERMES_CONFIG }}
@@ -103,36 +102,40 @@ jobs:
 
       - name: Install Hermes Agent
         run: |
+          # Force Git to use HTTPS instead of SSH globally to prevent clone timeouts
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          
           export NONINTERACTIVE=1
           export CI=true
-          # The || catches the /dev/tty crash if the wizard still tries to force-start
+          
+          # The || catches the /dev/tty crash if the wizard tries to force-start
           curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash || echo "✓ Bypassed interactive setup wizard"
           
           source ~/.bashrc 2>/dev/null || true
           export PATH="$HOME/.local/bin:$PATH"
           
-          # This acts as the real test: if the install failed, this command will crash the workflow
+          # Verify installation
           hermes --version
 
       - name: Start Hermes Gateway
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           
-          # Start gateway directly (bypassing systemd/systemctl)
+          # Start gateway directly in the background (bypassing systemd)
           nohup hermes gateway > /tmp/hermes.log 2>&1 &
           HERMES_PID=$!
           echo "$HERMES_PID" > /tmp/hermes.pid
           
           sleep 10
           
-          # Check if the process is actually running
+          # Check if process is running natively
           if kill -0 "$HERMES_PID" 2>/dev/null; then
             echo "✓ Gateway running (PID: $HERMES_PID)"
           else
             echo "✗ Gateway failed to start natively. Log output:"
             cat /tmp/hermes.log
             
-            # Fallback: If 'hermes gateway' requires a subcommand to run in foreground, try 'run' or 'serve'
+            # Fallback for CLI subcommands
             echo "Attempting fallback foreground command..."
             nohup hermes gateway run > /tmp/hermes.log 2>&1 &
             HERMES_PID=$!
@@ -147,11 +150,14 @@ jobs:
             fi
           fi
           
-          # Start tunnel
-          npm install -g localtunnel
-          lt --port 18790 > /tmp/tunnel.log 2>&1 &
+          # Start Cloudflare tunnel (Replaces localtunnel to avoid bot-blocking splash pages)
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o c.deb
+          sudo dpkg -i c.deb 2>/dev/null || sudo apt-get install -f -y
+          
+          # Point the tunnel to localhost:8000 (Update this if Hermes uses a different port)
+          cloudflared tunnel --url http://localhost:8000 --no-autoupdate > /tmp/tunnel.log 2>&1 &
           sleep 8
-          TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.loca\.lt' /tmp/tunnel.log | head -1)
+          TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           
           echo ""
           echo "=============================================="
@@ -159,7 +165,6 @@ jobs:
           echo "=============================================="
           echo ""
           echo "Tunnel: $TUNNEL_URL"
-          echo "Local:  http://localhost:18790"
           echo "PID:    $HERMES_PID"
           echo ""
           echo "✓ Telegram bot is live"
@@ -211,7 +216,7 @@ jobs:
             # Restart if died
             if [ -f /tmp/hermes.pid ] && ! kill -0 $(cat /tmp/hermes.pid) 2>/dev/null; then
               echo "⚠ Restarting gateway..."
-              nohup hermes gateway start > /tmp/hermes.log 2>&1 &
+              nohup hermes gateway > /tmp/hermes.log 2>&1 &
               echo $! > /tmp/hermes.pid
             fi
             
