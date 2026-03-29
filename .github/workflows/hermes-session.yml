@@ -98,19 +98,19 @@ jobs:
             echo "$HERMES_SECRETS" > ~/.hermes/secrets.yaml
           else
             cat > ~/.hermes/secrets.yaml << EOF
-TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
-TELEGRAM_USER_ID: "${TELEGRAM_USER_ID}"
-NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
-NVIDIA_API_KEY_2: "${NVIDIA_API_KEY_2}"
-NVIDIA_API_KEY_3: "${NVIDIA_API_KEY_3}"
-NVIDIA_API_KEY_4: "${NVIDIA_API_KEY_4}"
-NVIDIA_API_KEY_5: "${NVIDIA_API_KEY_5}"
-NVIDIA_API_KEY_6: "${NVIDIA_API_KEY_6}"
-NVIDIA_API_KEY_7: "${NVIDIA_API_KEY_7}"
-NVIDIA_API_KEY_8: "${NVIDIA_API_KEY_8}"
-NVIDIA_API_KEY_9: "${NVIDIA_API_KEY_9}"
-NVIDIA_API_KEY_10: "${NVIDIA_API_KEY_10}"
-EOF
+          TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+          TELEGRAM_USER_ID: "${TELEGRAM_USER_ID}"
+          NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
+          NVIDIA_API_KEY_2: "${NVIDIA_API_KEY_2}"
+          NVIDIA_API_KEY_3: "${NVIDIA_API_KEY_3}"
+          NVIDIA_API_KEY_4: "${NVIDIA_API_KEY_4}"
+          NVIDIA_API_KEY_5: "${NVIDIA_API_KEY_5}"
+          NVIDIA_API_KEY_6: "${NVIDIA_API_KEY_6}"
+          NVIDIA_API_KEY_7: "${NVIDIA_API_KEY_7}"
+          NVIDIA_API_KEY_8: "${NVIDIA_API_KEY_8}"
+          NVIDIA_API_KEY_9: "${NVIDIA_API_KEY_9}"
+          NVIDIA_API_KEY_10: "${NVIDIA_API_KEY_10}"
+          EOF
           fi
           chmod 600 ~/.hermes/secrets.yaml
           
@@ -181,9 +181,18 @@ EOF
               
               if [ $NOW -ge $CHAIN ]; then
                 echo "Triggering chain..."
+                
+                # Safely construct the JSON payload using jq to evaluate the arithmetic
+                NEXT_CC=$(( ${{ steps.info.outputs.cc }} + 1 ))
+                PAYLOAD=$(jq -n \
+                  --arg sid "${{ steps.info.outputs.sid }}" \
+                  --argjson cc "$NEXT_CC" \
+                  --arg cv "${{ steps.info.outputs.cv }}" \
+                  '{event_type: "chain-hermes", client_payload: {session_id: $sid, chain_count: $cc, cache_version: $cv}}')
+                
                 curl -s -X POST -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
                   "https://api.github.com/repos/${{ github.repository }}/dispatches" \
-                  -d '{"event_type":"chain-hermes","client_payload":{"session_id":"${{ steps.info.outputs.sid }}","chain_count":${{ steps.info.outputs.cc }}+1,"cache_version":"${{ steps.info.outputs.cv }}"}}' && CHAINED=true
+                  -d "$PAYLOAD" && CHAINED=true
               fi
             else
               LEFT=$(( (HARD-NOW)/60 ))
