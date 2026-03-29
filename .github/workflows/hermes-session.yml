@@ -118,19 +118,33 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           
-          # Start gateway
-          nohup hermes gateway start > /tmp/hermes.log 2>&1 &
+          # Start gateway directly (bypassing systemd/systemctl)
+          nohup hermes gateway > /tmp/hermes.log 2>&1 &
           HERMES_PID=$!
           echo "$HERMES_PID" > /tmp/hermes.pid
           
           sleep 10
           
+          # Check if the process is actually running
           if kill -0 "$HERMES_PID" 2>/dev/null; then
             echo "✓ Gateway running (PID: $HERMES_PID)"
           else
-            echo "✗ Gateway failed:"
+            echo "✗ Gateway failed to start natively. Log output:"
             cat /tmp/hermes.log
-            exit 1
+            
+            # Fallback: If 'hermes gateway' requires a subcommand to run in foreground, try 'run' or 'serve'
+            echo "Attempting fallback foreground command..."
+            nohup hermes gateway run > /tmp/hermes.log 2>&1 &
+            HERMES_PID=$!
+            echo "$HERMES_PID" > /tmp/hermes.pid
+            sleep 5
+            
+            if kill -0 "$HERMES_PID" 2>/dev/null; then
+               echo "✓ Gateway running via fallback (PID: $HERMES_PID)"
+            else
+               cat /tmp/hermes.log
+               exit 1
+            fi
           fi
           
           # Start tunnel
