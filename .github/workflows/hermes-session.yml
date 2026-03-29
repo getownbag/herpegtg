@@ -187,6 +187,11 @@ jobs:
           while [ $(date +%s) -lt $HARD ]; do
             NOW=$(date +%s)
             
+            # Print the live Hermes logs so we can debug!
+            echo "--- Live Gateway Logs ---"
+            tail -n 15 /tmp/hermes.log
+            echo "-------------------------"
+            
             # Periodic log
             if [ $((NOW - START)) -gt 0 ] && [ $(( (NOW - START) % 300 )) -lt 60 ]; then
               MINS=$(( (NOW - START) / 60 ))
